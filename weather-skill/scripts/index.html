@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+</head>
+<body>
+    <script>
+        // La función que la app busca
+        window['ai_edge_gallery_get_result'] = async (data, secret) => {
+            try {
+                // 1. Parsear los datos que envía la IA
+                const jsonData = JSON.parse(data);
+                const { city, units = 'metric' } = jsonData;
+
+                if (!city) {
+                    throw new Error("Se requiere el nombre de la ciudad.");
+                }
+
+                if (!secret) {
+                    throw new Error("Falta la API Key de OpenWeather.");
+                }
+
+                // 2. Geocodificación (convertir ciudad a coordenadas)
+                // Usamos backticks `` para poder meter variables ${city} y ${secret}
+                const geoUrl = `http://api.openweathermap.org/geo/1.0/direct?q=${encodeURIComponent(city)}&limit=1&appid=${secret}`;
+                
+                const geoResponse = await fetch(geoUrl);
+                if (!geoResponse.ok) {
+                    throw new Error(`Error en geocodificación (${geoResponse.status})`);
+                }
+
+                const geoData = await geoResponse.json();
+
+                if (!geoData || geoData.length === 0) {
+                    throw new Error(`No se encontró la ciudad: "${city}"`);
+                }
+
+                const location = geoData[0];
+                const lat = location.lat;
+                const lon = location.lon;
+                const cityName = `${location.name}, ${location.country}`;
+
+                // 3. Obtener el clima
+                const weatherUrl = `https://api.openweathermap.org/data/3.0/onecall?lat=${lat}&lon=${lon}&units=${units}&exclude=minutely,hourly,alerts&appid=${secret}`;
+
+                const weatherResponse = await fetch(weatherUrl);
+                if (!weatherResponse.ok) {
+                    const errorText = await weatherResponse.text();
+                    throw new Error(`Error en clima (${weatherResponse.status}): ${errorText}`);
+                }
+
+                const weatherData = await weatherResponse.json();
+
+                // 4. Formatear la respuesta
+                const current = weatherData.current;
+                const tempUnit = units === 'metric' ? '°C' : '°F';
+                
+                let resultText = `📍 Clima en ${cityName}:\n\n`;
+                resultText += `☀️ Estado: ${current.weather[0].description} (${current.weather[0].main})\n`;
+                resultText += `🌡️ Temperatura: ${current.temp}${tempUnit} (Sensación: ${current.feels_like}${tempUnit})\n`;
+                resultText += `💧 Humedad: ${current.humidity}%\n`;
+                resultText += `💨 Viento: ${current.wind_speed} m/s\n`;
+                resultText += `🌅 Amanecer: ${new Date(current.sunrise * 1000).toLocaleTimeString('es-ES')}\n`;
+                resultText += `🌇 Atardecer: ${new Date(current.sunset * 1000).toLocaleTimeString('es-ES')}\n`;
+
+                // Pronóstico resumido
+                resultText += `\n📅 Pronóstico próximos días:\n`;
+                weatherData.daily.slice(0, 5).forEach(day => {
+                    const date = new Date(day.dt * 1000).toLocaleDateString('es-ES', { weekday: 'short', day: 'numeric' });
+                    resultText += `- ${date}: ${day.temp.min}${tempUnit} / ${day.temp.max}${tempUnit} | ${day.weather[0].description}\n`;
+                });
+
+                // 5. Retornar el resultado
+                return JSON.stringify({
+                    result: resultText
+                });
+
+            } catch (e) {
+                console.error(e);
+                return JSON.stringify({
+                    error: `Error: ${e.message}`
+                });
+            }
+        };
+    </script>
+</body>
+</html>

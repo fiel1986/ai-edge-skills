@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+</head>
+<body>
+    <script>
+        window['ai_edge_gallery_get_result'] = async (data, secret) => {
+            try {
+                const jsonData = JSON.parse(data);
+                const {
+                    query,
+                    count = 5,
+                    country = 'MX',
+                    search_lang = 'es'
+                } = jsonData;
+
+                if (!query) {
+                    throw new Error("Falta el término de búsqueda (query).");
+                }
+
+                if (!secret) {
+                    throw new Error("Falta la API Key de Brave.");
+                }
+
+                // La API de Brave requiere este header especial
+                const url = `https://api.search.brave.com/res/v1/web/search?q=${encodeURIComponent(query)}&count=${Math.min(Math.max(count, 1), 20)}&country=${country}&search_lang=${search_lang}&text_decorations=false&safesearch=moderate`;
+
+                const response = await fetch(url, {
+                    method: 'GET',
+                    headers: {
+                        'Accept': 'application/json',
+                        'Accept-Encoding': 'gzip',
+                        'X-Subscription-Token': secret
+                    }
+                });
+
+                if (!response.ok) {
+                    if (response.status === 401) {
+                        throw new Error("API Key de Brave inválida (401).");
+                    }
+                    if (response.status === 429) {
+                        throw new Error("Límite de peticiones alcanzado (429). Espera un momento.");
+                    }
+                    throw new Error(`Error en la búsqueda (${response.status})`);
+                }
+
+                const searchData = await response.json();
+                const results = searchData.web?.results || [];
+
+                if (results.length === 0) {
+                    return JSON.stringify({
+                        result: `No encontré resultados para "${query}".`
+                    });
+                }
+
+                // Formatear para que la IA lo lea fácil (sin HTML ni anuncios)
+                let resultText = `🔎 Resultados para "${query}":\n\n`;
+
+                results.forEach((r, i) => {
+                    resultText += `${i + 1}. ${r.title}\n`;
+                    resultText += `   URL: ${r.url}\n`;
+                    // description ya viene sin decoraciones con text_decorations=false
+                    if (r.description) {
+                        resultText += `   ${r.description}\n`;
+                    }
+                    // Fecha si existe (útil para noticias)
+                    if (r.page_age) {
+                        resultText += `   📅 ${r.page_age}\n`;
+                    }
+                    resultText += `\n`;
+                });
+
+                // Si hay respuesta directa de Brave (tipo featured snippet), la incluimos primero
+                if (searchData.direct?.description) {
+                    resultText = `💡 Respuesta directa: ${searchData.direct.description}\n\n` + resultText;
+                }
+
+                return JSON.stringify({
+                    result: resultText
+                });
+
+            } catch (e) {
+                console.error(e);
+                return JSON.stringify({
+                    error: `Error: ${e.message}`
+                });
+            }
+        };
+    </script>
+</body>
+</html>

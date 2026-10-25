@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+</head>
+<body>
+    <script>
+        window['ai_edge_gallery_get_result'] = async (data, secret) => {
+            try {
+                const jsonData = JSON.parse(data);
+                const {
+                    query,
+                    count = 5,
+                    freshness = 'pw',
+                    country = 'MX',
+                    search_lang = 'es'
+                } = jsonData;
+
+                if (!query) {
+                    throw new Error("Falta el tema de búsqueda (query).");
+                }
+
+                if (!secret) {
+                    throw new Error("Falta la API Key de Brave.");
+                }
+
+                // Validar freshness para evitar errores raros de la API
+                const freshValido = ['pd', 'pw', 'pm'].includes(freshness) ? freshness : 'pw';
+
+                const url = `https://api.search.brave.com/res/v1/news/search?q=${encodeURIComponent(query)}&count=${Math.min(Math.max(count, 1), 20)}&freshness=${freshValido}&country=${country}&search_lang=${search_lang}`;
+
+                const response = await fetch(url, {
+                    method: 'GET',
+                    headers: {
+                        'Accept': 'application/json',
+                        'X-Subscription-Token': secret
+                    }
+                });
+
+                if (!response.ok) {
+                    if (response.status === 401) {
+                        throw new Error("API Key de Brave inválida (401).");
+                    }
+                    if (response.status === 429) {
+                        throw new Error("Límite de peticiones alcanzado (429). Espera un momento.");
+                    }
+                    throw new Error(`Error en la búsqueda de noticias (${response.status})`);
+                }
+
+                const searchData = await response.json();
+                const results = searchData.results || [];
+
+                if (results.length === 0) {
+                    return JSON.stringify({
+                        result: `No encontré noticias recientes sobre "${query}".`
+                    });
+                }
+
+                // Formatear para lectura fácil de la IA
+                let resultText = `📰 Noticias sobre "${query}":\n\n`;
+
+                results.forEach((r, i) => {
+                    resultText += `${i + 1}. ${r.title}\n`;
+
+                    // Fuente y fecha en una línea
+                    const meta = [];
+                    if (r.meta_url) meta.push(`Fuente: ${r.meta_url}`);
+                    if (r.age) meta.push(`📅 ${r.age}`);
+                    if (meta.length > 0) resultText += `   ${meta.join(' | ')}\n`;
+
+                    if (r.description) {
+                        resultText += `   ${r.description}\n`;
+                    }
+                    if (r.url) {
+                        resultText += `   URL: ${r.url}\n`;
+                    }
+                    resultText += `\n`;
+                });
+
+                return JSON.stringify({
+                    result: resultText
+                });
+
+            } catch (e) {
+                console.error(e)
+                return JSON.stringify({
+                    error: `Error: ${e.message}`
+                });
+            }
+        };
+    </script>
+</body>
+</html>
